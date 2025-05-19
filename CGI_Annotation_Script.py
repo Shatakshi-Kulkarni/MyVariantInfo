@@ -3,7 +3,7 @@ import myvariant
 import argparse
 import os
 import re
-import time # Import the time module
+import time
 from tenacity import retry, wait_fixed, stop_after_attempt, retry_if_exception_type
 
 # Global variable for MyVariantInfo client, will be initialized in process_file
@@ -13,9 +13,7 @@ mv = None
 @retry(wait=wait_fixed(1), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 def safe_getvariant(variant):
     if mv is None:
-        # This case should ideally be prevented by initializing mv before calling this.
-        # Re-initializing here as a fallback, but process_file should handle it.
-        global mv_safe_fallback # To avoid UnboundLocalError if mv was truly None globally
+        global mv_safe_fallback
         mv_safe_fallback = myvariant.MyVariantInfo()
         print("Warning: MyVariantInfo client was not initialized prior to safe_getvariant. Initializing now.")
         return mv_safe_fallback.getvariant(variant, fields='cgi')
@@ -63,8 +61,7 @@ def process_file(file_path):
     variants_processed_in_file = 0
     for idx, row in data.iterrows():
         variant = row['Genomic Alteration']
-        if pd.isna(variant) or not isinstance(variant, str): 
-            # print(f"Skipping invalid variant in row {idx+2} of {os.path.basename(file_path)}: {variant}") # More verbose
+        if pd.isna(variant) or not isinstance(variant, str):
             continue
             
         chrom_pos, ref, alt = split_variant(variant)
@@ -90,7 +87,6 @@ def process_file(file_path):
 
     if not results:
         print(f"No variants with CGI data found or processed successfully in {os.path.basename(file_path)}.")
-        # Still record time for attempting to process
         file_end_time = time.time()
         duration_file = file_end_time - file_start_time
         print(f"Time taken for {os.path.basename(file_path)}: {duration_file:.2f} seconds (No data written).")
@@ -137,7 +133,7 @@ def run_pipeline(args):
             return
         
         print(f"--- Starting folder annotation for: {args.folder_path} ---")
-        folder_process_start_time = time.time() # Start timing for the folder processing part
+        folder_process_start_time = time.time()
         files_to_process = []
         for file_name in os.listdir(args.folder_path):
             if file_name.endswith(".xlsx"):
@@ -152,7 +148,7 @@ def run_pipeline(args):
             print(f"Found {num_files_total} .xlsx file(s) to process.")
             for i, full_file_path in enumerate(files_to_process):
                 print(f"\nProcessing file {i+1} of {num_files_total}: {os.path.basename(full_file_path)}")
-                if process_file(full_file_path): # process_file now returns True on success
+                if process_file(full_file_path):
                     num_files_successfully_annotated += 1
         
         folder_process_end_time = time.time()
