@@ -1,0 +1,7 @@
+Command to install requirements:
+pip install -r requirements.txt
+
+Command to run CGI annotation script (file & folder):
+python path_to_script/script_name.py --file /path/to/single_file.xlsx
+
+python path_to_script/script_name.py  --folder /path/to/folder
