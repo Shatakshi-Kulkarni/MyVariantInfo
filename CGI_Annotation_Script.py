@@ -13,6 +13,7 @@ mv = None
 @retry(wait=wait_fixed(1), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 def safe_getvariant(variant):
     if mv is None:
+        # This is a fallback initialization. The primary one is in process_file.
         global mv_safe_fallback
         mv_safe_fallback = myvariant.MyVariantInfo()
         print("Warning: MyVariantInfo client was not initialized prior to safe_getvariant. Initializing now.")
@@ -20,17 +21,28 @@ def safe_getvariant(variant):
     return mv.getvariant(variant, fields='cgi')
 
 def split_variant(variant):
-    """
-    Splits variant like 'chr1:g.162745497A>T' into:
-    - chrom_pos: 'chr1:g.162745497'
-    - ref: 'A'
-    - alt: 'T'
-    """
-    match = re.match(r"^(chr\w+:g\.\d+)([ACGT]+)>([ACGT]+)$", variant)
-    if match:
-        chrom_pos, ref, alt = match.groups()
+    #Splits various HGVS-like variant formats into components for clear output columns.
+    # Pattern 1: Substitution (SNP) like chr1:g.243777040G>T
+    snp_match = re.match(r"^(chr\w+:g\.\d+)([ACGT]+)>([ACGT]+)$", variant)
+    if snp_match:
+        chrom_pos, ref, alt = snp_match.groups()
         return chrom_pos, ref, alt
+
+    # Pattern 2: Deletion or Duplication (single base or range)
+    indel_match = re.match(r"^(chr\w+:g\.\d+(?:_\d+)?)(del|dup)$", variant)
+    if indel_match:
+        chrom_pos, alt = indel_match.groups()
+        return chrom_pos, '', alt
+
+    # Pattern 3: Copy Number Alteration (CNA) / Range
+    cna_match = re.match(r"^(chr\w+:g\.\d+_\d+)$", variant)
+    if cna_match:
+        chrom_pos = cna_match.group(0)
+        return chrom_pos, 'CNA', ''
+
+    # Fallback: If no specific pattern matches, return the original variant.
     return variant, '', ''
+
 
 def process_file(file_path):
     file_start_time = time.time() # Start timing for this specific file
@@ -66,15 +78,33 @@ def process_file(file_path):
             
         chrom_pos, ref, alt = split_variant(variant)
 
+        chrom = ''
+        pos = ''
+        try:
+            if ':' in chrom_pos:
+                chrom_part, pos_part = chrom_pos.split(':', 1)
+                chrom = chrom_part
+                if pos_part.startswith('g.'):
+                    pos = pos_part[2:]
+                else:
+                    pos = pos_part
+        except ValueError:
+            pass
+
         try:
             res = safe_getvariant(variant)
             variants_processed_in_file +=1
-            # print(f"Variant: {variant}, Fetched CGI Data: {res.get('cgi')}") # Debug print
-
+            
             if res is None or 'cgi' not in res:
                 continue
 
-            entry = {'input_variant': variant, 'chrom_pos': chrom_pos, 'ref': ref, 'alt': alt}
+            entry = {
+                'input_variant': variant,
+                'chrom': chrom,
+                'Pos': pos,
+                'ref': ref,
+                'alt': alt
+            }
 
             if isinstance(res['cgi'], list):
                 for item in res['cgi']:
@@ -90,7 +120,7 @@ def process_file(file_path):
         file_end_time = time.time()
         duration_file = file_end_time - file_start_time
         print(f"Time taken for {os.path.basename(file_path)}: {duration_file:.2f} seconds (No data written).")
-        return False # Indicate no data written, but file was "processed"
+        return False
 
     result_df = pd.json_normalize(results)
 
@@ -102,7 +132,7 @@ def process_file(file_path):
         file_end_time = time.time()
         duration_file = file_end_time - file_start_time
         print(f"Time taken for {os.path.basename(file_path)}: {duration_file:.2f} seconds (No unique data to write).")
-        return False # Indicate no data written
+        return False
 
     try:
         with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
@@ -111,13 +141,13 @@ def process_file(file_path):
         file_end_time = time.time()
         duration_file = file_end_time - file_start_time
         print(f"Time taken for {os.path.basename(file_path)}: {duration_file:.2f} seconds.")
-        return True # Indicate success
+        return True
     except Exception as e:
         print(f"Error writing to Excel file {os.path.basename(file_path)}: {e}")
         file_end_time = time.time()
         duration_file = file_end_time - file_start_time
         print(f"Time taken for {os.path.basename(file_path)} (with write error): {duration_file:.2f} seconds.")
-        return False # Indicate failure
+        return False
 
 
 def run_pipeline(args):
@@ -126,7 +156,6 @@ def run_pipeline(args):
     if args.file_path:
         print(f"--- Starting single file annotation ---")
         process_file(args.file_path)
-        # The process_file function prints its own duration.
     elif args.folder_path:
         if not os.path.isdir(args.folder_path):
             print(f"Error: Folder not found: {args.folder_path}")
