@@ -17,10 +17,10 @@ pip install -r requirements.txt
 ## 🚀Usage:
 Run the script from the terminal
 
-✅ Annotate a single Excel file
+✅ Annotate a single Excel file:
 python CGI_Annotation_Script.py --file /path/to/input_file.xlsx
 
-📂 Annotate all Excel files in a folder
+📂 Annotate all Excel files in a folder:
 python CGI_Annotation_Script.py --folder /path/to/folder/
 
 ## 📤 Output
